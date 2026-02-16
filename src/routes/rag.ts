@@ -24,49 +24,49 @@ router.post("/search", async (req, res) => {
         const embedding = embeddingResponse.data[0].embedding;
 
         // 2. Buscar no Supabase usando RPC (match_documents)
-        // Assumindo que você já tem uma função RPC chamada 'match_documents' ou similar.
-        // Se não tiver, precisaremos criar. Vou assumir 'match_processed_records' baseada na sua tabela 'processed_records'.
         if (!supabase) {
             return res.status(500).json({ error: "Supabase credentials not configured in server" });
         }
 
-        const { data: documents, error } = await supabase.rpc("match_processed_records", {
+        // Busca em Documentos Processados (PDFs/Imagens antigos)
+        const { data: documents, error: docError } = await supabase.rpc("match_processed_records", {
             query_embedding: embedding,
-            match_threshold: 0.7, // Ajuste conforme necessário
+            match_threshold: 0.7,
             match_count: 5,
         });
 
-        if (error) {
-            // Fallback: Tentar buscar em 'audio_transcriptions' se a primeira falhar ou retornar vazio?
-            // Por enquanto, vamos retornar o erro ou tentar a outra tabela.
-            console.error("Erro na busca de documentos:", error);
-            const { data: audioDocs, error: audioError } = await supabase.rpc("match_audio_transcriptions", {
-                query_embedding: embedding,
-                match_threshold: 0.7,
-                match_count: 5,
-            });
+        // Busca em Transcrições de Áudio
+        const { data: audioDocs, error: audioError } = await supabase.rpc("match_audio_transcriptions", {
+            query_embedding: embedding,
+            match_threshold: 0.7,
+            match_count: 5,
+        });
 
-            if (audioError) {
-                return res.status(500).json({ error: "Erro ao buscar documentos e áudios", details: audioError });
-            }
-            return res.json({ results: audioDocs, source: "audio" });
+        // NOVA BUSCA: Busca em Extrações de Texto (Emails/Textos do WeWeb)
+        const { data: textDocs, error: textError } = await supabase.rpc("match_text_extractions", {
+            query_embedding: embedding,
+            match_threshold: 0.7,
+            match_count: 5,
+        });
+
+        if (docError && audioError && textError) {
+            console.error("Erro na busca:", { docError, audioError, textError });
+            return res.status(500).json({ error: "Erro ao buscar em todas as fontes." });
         }
 
-        // Se achou documentos, retorna. Se não, tenta áudio.
-        if (!documents || documents.length === 0) {
-            const { data: audioDocs, error: audioError } = await supabase.rpc("match_audio_transcriptions", {
-                query_embedding: embedding,
-                match_threshold: 0.7,
-                match_count: 5,
-            });
+        // Combinar resultados
+        const allResults = [
+            ...(documents || []).map((d: any) => ({ ...d, type: 'document' })),
+            ...(audioDocs || []).map((d: any) => ({ ...d, type: 'audio' })),
+            ...(textDocs || []).map((d: any) => ({ ...d, type: 'text' }))
+        ];
 
-            if (audioError) {
-                return res.json({ results: [], message: "Nenhum documento encontrado." });
-            }
-            return res.json({ results: audioDocs, source: "audio" });
+        // Se não achar nada
+        if (allResults.length === 0) {
+            return res.json({ results: [], message: "Nenhum documento encontrado." });
         }
 
-        res.json({ results: documents, source: "documents" });
+        return res.json({ results: allResults, count: allResults.length });
 
     } catch (error: any) {
         console.error("Erro interno:", error);
