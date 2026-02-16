@@ -31,26 +31,33 @@ router.post("/search", async (req, res) => {
         // Busca em Documentos Processados (PDFs/Imagens antigos)
         const { data: documents, error: docError } = await supabase.rpc("match_processed_records", {
             query_embedding: embedding,
-            match_threshold: 0.7,
+            match_threshold: 0.4, // Reduzido drasticamente para 0.4
             match_count: 5,
         });
 
         // Busca em Transcrições de Áudio
         const { data: audioDocs, error: audioError } = await supabase.rpc("match_audio_transcriptions", {
             query_embedding: embedding,
-            match_threshold: 0.7,
+            match_threshold: 0.4, // Reduzido para 0.4
             match_count: 5,
         });
 
         // NOVA BUSCA: Busca em Extrações de Texto (Emails/Textos do WeWeb)
         const { data: textDocs, error: textError } = await supabase.rpc("match_text_extractions", {
             query_embedding: embedding,
-            match_threshold: 0.7,
+            match_threshold: 0.4, // Reduzido para 0.4
             match_count: 5,
         });
 
+        console.log("DEBUG BUSCA:", {
+            textDocsLength: textDocs?.length || 0,
+            textError: textError,
+            docDocsLength: documents?.length || 0,
+            audioDocsLength: audioDocs?.length || 0
+        });
+
         if (docError && audioError && textError) {
-            console.error("Erro na busca:", { docError, audioError, textError });
+            console.error("Erro na busca TOTAL:", { docError, audioError, textError });
             return res.status(500).json({ error: "Erro ao buscar em todas as fontes." });
         }
 
@@ -63,7 +70,7 @@ router.post("/search", async (req, res) => {
 
         // Se não achar nada
         if (allResults.length === 0) {
-            return res.json({ results: [], message: "Nenhum documento encontrado." });
+            return res.json({ results: [], message: "Nenhum documento encontrado com threshold 0.4" });
         }
 
         return res.json({ results: allResults, count: allResults.length });
